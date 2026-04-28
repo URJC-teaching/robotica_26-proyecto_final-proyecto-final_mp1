@@ -1,0 +1,17 @@
+mission_coordinator:
+  ros__parameters:
+    desired_follow_distance: 1.5
+    follow_distance_tolerance: 0.2
+    follow_update_period: 1.0
+    follow_max_step: 1.0
+    lost_person_timeout_sec: 2.5
+    min_detection_score: 0.45
+    person_class_name: person
+    base_frame: base_link
+    map_frame: map
+    detection_topic: /yolo/detections_3d
+    nav_goal_timeout_sec: 180.0
+    named_goals_file: ''
+    random_goal_names: [puerta_a, puerta_b, puerta_c]
+    startup_prompt: Sistema listo. Dime una instruccion.
+    command_prompt: Di seguir persona, ir a una puerta, o ir aleatorio.
