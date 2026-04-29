@@ -94,10 +94,8 @@ class MissionCoordinator(Node):
         self._dependencies_ready = False
         self._next_dependency_check = now
 
-        try:
-            self._last_tf_warn_time = now - Duration(seconds=10.0)
-        except ValueError:
-            self._last_tf_warn_time = rclpy.time.Time()
+        # Inicializa sin restar para evitar tiempo negativo en sim
+        self._last_tf_warn_time = now
 
         # Bucle de control principal (5 Hz)
         self.create_timer(0.2, self._control_cycle)
