@@ -1,0 +1,27 @@
+# config/waypoints.yaml
+# Coordenadas en metros en el frame 'map'.
+# Obtén los valores con RViz (2D Nav Goal) o con la fórmula:
+#   x = (pixel_x - origin_x) * resolution
+#   y = (origin_y - pixel_y) * resolution
+# donde origin_x, origin_y y resolution vienen de tu map.yaml
+
+waypoints:
+  home:
+    x: 0.0
+    y: 0.0
+    theta: 0.0   # radianes
+
+  papelera:
+    x: 2.5
+    y: 1.0
+    theta: 0.0
+
+  punto_a:
+    x: -1.5
+    y: 2.0
+    theta: 1.5707  # 90 grados
+
+  punto_b:
+    x: 3.0
+    y: -1.5
+    theta: 3.1415  # 180 grados
