@@ -18,7 +18,7 @@ def generate_launch_description():
     args = [
         DeclareLaunchArgument(
             'use_sim_time',
-            default_value='true',
+            default_value='false',
             description='Usar tiempo de simulación (Gazebo/Webots)'
         ),
         DeclareLaunchArgument(

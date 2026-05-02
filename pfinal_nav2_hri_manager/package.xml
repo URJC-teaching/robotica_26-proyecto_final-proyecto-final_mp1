@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>final_project</name>
+  <name>pfinal_nav2_hri_manager</name>
   <version>0.1.0</version>
   <description>Proyecto final ROS2 Jazzy: navegación autónoma con Nav2, interacción HRI y detección YOLO</description>
 
@@ -13,8 +13,11 @@
   <depend>std_msgs</depend>
   <depend>nav2_msgs</depend>
   <depend>action_msgs</depend>
+  <depend>sound_play</depend>
   <depend>audio_common_msgs</depend>
   <depend>whisper_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>simple_hri_interfaces</depend>
   <depend>ament_index_python</depend>
 
   <test_depend>ament_copyright</test_depend>

@@ -7,6 +7,7 @@ from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped
 from std_msgs.msg import String
 from audio_common_msgs.action import TTS
+#from sound_play.action import SoundRequest as TTS
 from whisper_msgs.action import STT
 from rclpy.action import ActionClient
 from nav2_msgs.action import NavigateToPose
@@ -115,7 +116,7 @@ class MissionManagerNode(Node):
 
     def _load_waypoints(self, filename: str):
         try:
-            pkg_share = get_package_share_directory('final_project')
+            pkg_share = get_package_share_directory('pfinal_nav2_hri_manager')
             path = os.path.join(pkg_share, 'config', filename)
         except Exception:
             path = filename  # Path absoluto como fallback

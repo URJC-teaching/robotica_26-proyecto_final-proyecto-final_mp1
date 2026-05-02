@@ -7,6 +7,8 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 from audio_common_msgs.action import TTS
 from whisper_msgs.action import STT
+#from std_srvs.srv import SetBool
+#from simple_hri_interfaces.srv import Speech
 from enum import IntEnum
 
 
@@ -31,8 +33,8 @@ class HRITestNode(Node):
     def __init__(self):
         super().__init__('hri_test_node')
 
-        self.tts_client = ActionClient(self, TTS, 'say')
-        self.stt_client = ActionClient(self, STT, 'whisper/listen')
+        self.tts_client = self.create_client(Speech, '/tts_service')
+        self.stt_client = self.create_client(SetBool, '/stt_service')
 
         self.state = State.INIT
         self.transcribed_text = ''
@@ -80,46 +82,42 @@ class HRITestNode(Node):
     # ---- TTS ----
     def _say(self, text: str):
         self._tts_done = False
-        if not self.tts_client.wait_for_server(timeout_sec=3.0):
+        if not self.tts_client.wait_for_service(timeout_sec=3.0):
             self.get_logger().error('TTS no disponible')
             self._tts_done = True
             return
-        goal = TTS.Goal()
-        goal.text = text
+
+        request = Speech.Request()
+        request.text = text
         self.get_logger().info(f'TTS: "{text}"')
-        self.tts_client.send_goal_async(goal).add_done_callback(self._tts_response_cb)
+        self.tts_client.call_async(request).add_done_callback(self._tts_response_cb)
 
     def _tts_response_cb(self, future):
-        handle = future.result()
-        if not handle.accepted:
+        response = future.result()
+        if response is None or not response.success:
             self._tts_done = True
             return
-        handle.get_result_async().add_done_callback(lambda _: setattr(self, '_tts_done', True))
+        setattr(self, '_tts_done', True)
 
     # ---- STT ----
     def _listen(self):
         self._stt_done = False
-        if not self.stt_client.wait_for_server(timeout_sec=3.0):
+        if not self.stt_client.wait_for_service(timeout_sec=3.0):
             self.get_logger().error('STT no disponible')
             self._stt_done = True
             return
-        goal = STT.Goal()
+
+        request = SetBool.Request()
+        request.data = True
         self.get_logger().info('STT: escuchando...')
-        self.stt_client.send_goal_async(goal).add_done_callback(self._stt_response_cb)
+        self.stt_client.call_async(request).add_done_callback(self._stt_response_cb)
 
     def _stt_response_cb(self, future):
-        handle = future.result()
-        if not handle.accepted:
-            self._stt_done = True
-            return
-        handle.get_result_async().add_done_callback(self._stt_result_cb)
-
-    def _stt_result_cb(self, future):
-        result = future.result().result
-        text = ''
-        if hasattr(result, 'transcription') and hasattr(result.transcription, 'text'):
-            text = result.transcription.text
-        self.transcribed_text = text
+        response = future.result()
+        if response is None or not response.success:
+            self.transcribed_text = ''
+        else:
+            self.transcribed_text = response.message
         self._stt_done = True
 
 
