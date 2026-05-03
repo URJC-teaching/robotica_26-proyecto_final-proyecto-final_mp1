@@ -6,22 +6,27 @@
 # donde origin_x, origin_y y resolution vienen de tu map.yaml
 
 waypoints:
-  home:
-    x: 0.0
-    y: 0.0
-    theta: 0.0   # radianes
+  centro:
+    x: 1.6266
+    y: 4.28702
+    theta: 0.604198   # radianes
+
+  puerta:
+    x: 1.37
+    y: 7.01
+    theta: -0.745
 
   papelera:
-    x: 2.5
-    y: 1.0
-    theta: 0.0
+    x: 1.73421
+    y: 5.89065
+    theta: -0.745802
 
-  punto_a:
-    x: -1.5
-    y: 2.0
-    theta: 1.5707  # 90 grados
+  punto_a: # puerta
+    x: 1.37
+    y: 7.01
+    theta: -0.745
 
-  punto_b:
-    x: 3.0
-    y: -1.5
-    theta: 3.1415  # 180 grados
+  punto_b: # pasillo
+    x: 3.26283
+    y: 8.44936
+    theta: 2.1542  # 180 grados

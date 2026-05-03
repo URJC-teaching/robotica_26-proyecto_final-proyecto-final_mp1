@@ -2,8 +2,8 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>pfinal_nav2_hri_manager</name>
-  <version>0.1.0</version>
-  <description>Proyecto final ROS2 Jazzy: navegación autónoma con Nav2, interacción HRI y detección YOLO</description>
+  <version>0.3.0</version>
+  <description>Proyecto final ROS2 Jazzy: orquestador FSM Nav2 + HRI (simple_hri) + YOLO</description>
 
   <maintainer email="student@university.es">student</maintainer>
   <license>Apache-2.0</license>
@@ -11,14 +11,19 @@
   <depend>rclpy</depend>
   <depend>geometry_msgs</depend>
   <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
   <depend>nav2_msgs</depend>
   <depend>action_msgs</depend>
-  <depend>sound_play</depend>
-  <depend>audio_common_msgs</depend>
-  <depend>whisper_msgs</depend>
-  <depend>std_srvs</depend>
-  <depend>simple_hri_interfaces</depend>
+  <depend>vision_msgs</depend>
+  <depend>tf2_ros</depend>
   <depend>ament_index_python</depend>
+
+  <depend>hri_client</depend>
+  <depend>simple_hri_interfaces</depend>
+  <exec_depend>simple_hri</exec_depend>
+  <exec_depend>sound_play</exec_depend>
+  <exec_depend>camera</exec_depend>
+  <exec_depend>yolo_bringup</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

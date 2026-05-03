@@ -50,7 +50,7 @@ class NavTestNode(Node):
 
     def _control_cycle(self):
         if not self.server_ready:
-            if self.nav_client.wait_for_action_server(timeout_sec=1.0):
+            if self.nav_client.wait_for_server(timeout_sec=1.0):
                 self.get_logger().info('Servidor Nav2 disponible')
                 self.server_ready = True
             return
