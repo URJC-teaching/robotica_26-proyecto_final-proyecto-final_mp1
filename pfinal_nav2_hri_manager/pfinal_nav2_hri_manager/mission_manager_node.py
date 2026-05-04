@@ -42,10 +42,10 @@ class State(IntEnum):
 
 MENU_PROMPT = (
     "Dime un número del uno al cuatro. "
-    "Uno: ir a la papelera. "
-    "Dos: ir al punto a. "
+    "Uno: ir a la puerta. "
+    "Dos: ir al centro. "
     "Tres: buscar a una persona. "
-    "Cuatro: ir a un punto aleatorio y volver."
+    "Cuatro: ir a un punto y volver."
 )
 
 ARRIVAL_PHRASES = [
@@ -54,12 +54,21 @@ ARRIVAL_PHRASES = [
     "Listo, estoy en el punto indicado.",
 ]
 
+OPTION_LABELS = {
+    1: 'la puerta',
+    2: 'el centro',
+    3: 'buscar una persona',
+    4: 'un paseo',
+}
+
 WORD_TO_OPTION = {
-    'uno': 1, 'una': 1, 'papelera': 1, 'primero': 1,
-    'dos': 2, 'segundo': 2, 'punto a': 2,
+    'uno': 1, 'una': 1, 'puerta': 1, 'primero': 1,
+    'dos': 2, 'segundo': 2, 'centro': 2,
     'tres': 3, 'persona': 3, 'sigue': 3, 'sígueme': 3, 'tercero': 3,
     'cuatro': 4, 'aleatorio': 4, 'random': 4, 'cuarto': 4, 'paseo': 4,
 }
+
+POST_TTS_BUFFER_SEC = 1.5  # extra espera tras is_speaking_done() para VM/latencia soundplay
 
 
 class MissionManagerNode(Node):
@@ -136,8 +145,10 @@ class MissionManagerNode(Node):
 
         # Flags de un solo disparo por estado
         self._ask_started       = False
+        self._ask_done_ts       = None   # para buffer post-TTS antes de STT
         self._listen_started    = False
         self._arrived_announced = False
+        self._arrived_done_ts   = None   # para buffer post-TTS en ARRIVED
 
         # Follow: timestamps independientes del state_ts
         self._follow_entered_ts   = None
@@ -242,9 +253,14 @@ class MissionManagerNode(Node):
         if not self._ask_started:
             self.hri.start_speaking(MENU_PROMPT)
             self._ask_started = True
+            self._ask_done_ts = None
         elif self.hri.is_speaking_done():
-            self._ask_started = False
-            self._go(State.LISTEN)
+            if self._ask_done_ts is None:
+                self._ask_done_ts = self.get_clock().now()
+            elif (self.get_clock().now() - self._ask_done_ts).nanoseconds / 1e9 >= POST_TTS_BUFFER_SEC:
+                self._ask_started = False
+                self._ask_done_ts = None
+                self._go(State.LISTEN)
 
     # ---- LISTEN ----
     def _h_listen(self):
@@ -263,16 +279,17 @@ class MissionManagerNode(Node):
 
         if opt is None:
             opt = random.randint(1, 4)
+            self.hri.start_speaking(f'No te entendí. Voy a {OPTION_LABELS[opt]}.')
             self.get_logger().warn(f'STT="{text}" no entendido -> aleatoria: {opt}')
         else:
             self.get_logger().info(f'STT="{text}" -> opción {opt}')
 
         self._chosen_option = opt
         if opt == 1:
-            self._send_waypoint_goal('papelera')
+            self._send_waypoint_goal('puerta')
             self._go(State.NAV)
         elif opt == 2:
-            self._send_waypoint_goal('punto_a')
+            self._send_waypoint_goal('centro')
             self._go(State.NAV)
         elif opt == 3:
             self._close_since         = None
@@ -373,15 +390,20 @@ class MissionManagerNode(Node):
                 phrase += ' Veo a una persona delante.'
             self.hri.start_speaking(phrase)
             self._arrived_announced = True
-            self._post_goal_ts = self.get_clock().now()
+            self._arrived_done_ts = None
             return
 
         if not self.hri.is_speaking_done():
             return
 
-        elapsed = (self.get_clock().now() - self._post_goal_ts).nanoseconds / 1e9
-        if elapsed >= self.post_goal_wait:
+        # Buffer post-TTS + espera mínima post_goal_wait desde que TTS terminó
+        if self._arrived_done_ts is None:
+            self._arrived_done_ts = self.get_clock().now()
+
+        elapsed = (self.get_clock().now() - self._arrived_done_ts).nanoseconds / 1e9
+        if elapsed >= max(POST_TTS_BUFFER_SEC, self.post_goal_wait):
             self._arrived_announced = False
+            self._arrived_done_ts   = None
             self._post_goal_ts      = None
             self._go(State.DONE)
 

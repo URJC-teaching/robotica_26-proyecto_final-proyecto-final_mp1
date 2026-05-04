@@ -43,6 +43,10 @@ def launch_setup(context, *args, **kwargs):
     pkg_share = get_package_share_directory('pfinal_nav2_hri_manager')
     waypoints_file = os.path.join(pkg_share, 'config', 'waypoints.yaml')
 
+    # Mapa editado en la raíz del workspace (coordenadas alineadas con waypoints.yaml)
+    ws_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(pkg_share))))
+    map_edited = os.path.join(ws_root, 'map_edited.yaml')
+
     include_nav2 = LaunchConfiguration('include_nav2').perform(context).lower() == 'true'
     include_hri  = LaunchConfiguration('include_hri').perform(context).lower() == 'true'
     use_yolo     = LaunchConfiguration('use_yolo').perform(context).lower() == 'true'
@@ -58,12 +62,15 @@ def launch_setup(context, *args, **kwargs):
             )
             nav_launch_path = os.path.join(kobuki_share, 'launch', nav_launch)
             if os.path.isfile(nav_launch_path):
+                nav_args = {
+                    'use_sim_time': str(use_sim_time).lower(),
+                    'rviz':         'False',
+                }
+                if os.path.isfile(map_edited):
+                    nav_args['map'] = map_edited
                 actions.append(IncludeLaunchDescription(
                     PythonLaunchDescriptionSource(nav_launch_path),
-                    launch_arguments={
-                        'use_sim_time': str(use_sim_time).lower(),
-                        'rviz':         'False',
-                    }.items(),
+                    launch_arguments=nav_args.items(),
                 ))
         except PackageNotFoundError:
             pass  # Si no hay paquete kobuki, hay que lanzar Nav2 a mano aparte
