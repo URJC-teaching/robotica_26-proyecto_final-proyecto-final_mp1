@@ -247,6 +247,10 @@ class MissionManagerNode(Node):
                 self.get_logger().warn('Servicios HRI no disponibles, reintentando...')
                 self.state_ts = self.get_clock().now()
                 return
+            if not self.nav_client.wait_for_server(timeout_sec=5.0):
+                self.get_logger().warn('Nav2 no disponible, reintentando...')
+                self.state_ts = self.get_clock().now()
+                return
             self._go(State.ASK)
 
     # ---- ASK ----
@@ -436,7 +440,7 @@ class MissionManagerNode(Node):
         self._send_pose_goal(pose, label)
 
     def _send_pose_goal(self, pose: PoseStamped, label: str):
-        if not self.nav_client.wait_for_server(timeout_sec=3.0):
+        if not self.nav_client.server_is_ready():
             self.get_logger().error('Nav2 no disponible')
             self._nav_done = True
             return
