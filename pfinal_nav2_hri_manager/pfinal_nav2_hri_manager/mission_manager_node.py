@@ -3,8 +3,8 @@
 # Orquestador FSM: Nav2 + HRI (simple_hri: stt_service_local + tts_service_local) + YOLO
 #
 # Menú por voz (dí un número o una palabra clave):
-#   1 -> ir a "papelera"
-#   2 -> ir a "punto_a"
+#   1 -> ir a "puerta"
+#   2 -> ir a "centro"
 #   3 -> buscar persona con YOLO y acercarse (<= 1.5 m durante 2 s)
 #   4 -> ir a "punto_b" y volver al inicio
 
@@ -15,12 +15,10 @@ from enum import IntEnum
 
 import rclpy
 import yaml
-from action_msgs.msg import GoalStatus
 from ament_index_python.packages import get_package_share_directory
 from geometry_msgs.msg import PoseStamped
 from hri_client.hri_client import HRIClient
-from nav2_msgs.action import NavigateToPose
-from rclpy.action import ActionClient
+from navigation_client.navigation_client import NavigationClient
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from std_msgs.msg import String
@@ -53,6 +51,12 @@ ARRIVAL_PHRASES = [
     "He llegado al destino.",
     "Objetivo alcanzado.",
     "Listo, estoy en el punto indicado.",
+]
+
+FAILURE_PHRASES = [
+    "No es posible, no he llegado al destino.",
+    "No he podido llegar al punto indicado.",
+    "Ha habido un problema y no he llegado al destino.",
 ]
 
 OPTION_LABELS = {
@@ -102,8 +106,9 @@ class MissionManagerNode(Node):
         # HRI client (simple_hri stack: /tts_service + /stt_service)
         self.hri = HRIClient(self)
 
-        # Nav2
-        self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+        # Nav2 client
+        self.nav = NavigationClient(self)
+        self.nav.set_frames(self.base_frame, self.map_frame)
 
         # YOLO detections — sensor_data QoS para casar con yolo_depth_node
         self.create_subscription(
@@ -117,7 +122,7 @@ class MissionManagerNode(Node):
         self.state_pub = self.create_publisher(String, '~/state', 10)
 
         # TF
-        self.tf_buffer = Buffer()
+        self.tf_buffer   = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
         # Waypoints
@@ -128,28 +133,23 @@ class MissionManagerNode(Node):
         self.state    = State.INIT
         self.state_ts = self.get_clock().now()
 
-        # Nav flags
-        self._nav_goal_handle = None
-        self._nav_active      = False
-        self._nav_done        = False
-        self._nav_success     = False
-
         # YOLO
-        self._last_detection  = None
-        self._close_since     = None
+        self._last_detection = None
+        self._close_since    = None
 
         # Estado general
-        self._chosen_option     = 0
-        self._return_pose       = None
-        self._post_goal_ts      = None
-        self._stt_text          = ''
+        self._chosen_option   = 0
+        self._return_pose     = None
+        self._post_goal_ts    = None
+        self._stt_text        = ''
+        self._arrival_success = True   # False si nav falla → frase de error en ARRIVED
 
         # Flags de un solo disparo por estado
         self._ask_started       = False
-        self._ask_done_ts       = None   # para buffer post-TTS antes de STT
+        self._ask_done_ts       = None
         self._listen_started    = False
         self._arrived_announced = False
-        self._arrived_done_ts   = None   # para buffer post-TTS en ARRIVED
+        self._arrived_done_ts   = None
 
         # Follow: timestamps independientes del state_ts
         self._follow_entered_ts   = None
@@ -163,7 +163,7 @@ class MissionManagerNode(Node):
     # =========================================================
     def _load_waypoints(self, filename: str):
         try:
-            pkg = get_package_share_directory('pfinal_nav2_hri_manager')
+            pkg  = get_package_share_directory('pfinal_nav2_hri_manager')
             path = os.path.join(pkg, 'config', filename)
         except Exception:
             path = filename
@@ -213,7 +213,7 @@ class MissionManagerNode(Node):
     #   FSM
     # =========================================================
     def _control_cycle(self):
-        msg = String()
+        msg      = String()
         msg.data = State(self.state).name
         self.state_pub.publish(msg)
 
@@ -247,7 +247,7 @@ class MissionManagerNode(Node):
                 self.get_logger().warn('Servicios HRI no disponibles, reintentando...')
                 self.state_ts = self.get_clock().now()
                 return
-            if not self.nav_client.wait_for_server(timeout_sec=5.0):
+            if not self.nav.wait_for_action_server(timeout_sec=5.0):
                 self.get_logger().warn('Nav2 no disponible, reintentando...')
                 self.state_ts = self.get_clock().now()
                 return
@@ -273,7 +273,7 @@ class MissionManagerNode(Node):
             self.hri.start_listen()
             self._listen_started = True
         elif self.hri.is_listen_done():
-            self._stt_text = self.hri.get_listened_text()
+            self._stt_text       = self.hri.get_listened_text()
             self._listen_started = False
             self._go(State.DECIDE)
 
@@ -284,18 +284,25 @@ class MissionManagerNode(Node):
 
         if opt is None:
             opt = random.randint(1, 4)
-            self.hri.start_speaking(f'No te entendí. Voy a {OPTION_LABELS[opt]}.')
             self.get_logger().warn(f'STT="{text}" no entendido -> aleatoria: {opt}')
         else:
             self.get_logger().info(f'STT="{text}" -> opción {opt}')
 
-        self._chosen_option = opt
+        self._chosen_option   = opt
+        self._arrival_success = True   # se sobrescribe si nav falla
+
         if opt == 1:
-            self._send_waypoint_goal('puerta')
-            self._go(State.NAV)
+            if self._send_waypoint_goal('puerta'):
+                self._go(State.NAV)
+            else:
+                self._arrival_success = False
+                self._go(State.ARRIVED)
         elif opt == 2:
-            self._send_waypoint_goal('centro')
-            self._go(State.NAV)
+            if self._send_waypoint_goal('centro'):
+                self._go(State.NAV)
+            else:
+                self._arrival_success = False
+                self._go(State.ARRIVED)
         elif opt == 3:
             self._close_since         = None
             self._follow_entered_ts   = None
@@ -303,8 +310,11 @@ class MissionManagerNode(Node):
             self._go(State.FOLLOW)
         else:
             self._return_pose = self._get_current_pose()
-            self._send_waypoint_goal('punto_b')
-            self._go(State.RANDOM_OUT)
+            if self._send_waypoint_goal('punto_b'):
+                self._go(State.RANDOM_OUT)
+            else:
+                self._arrival_success = False
+                self._go(State.ARRIVED)
 
     def _parse_option(self, text: str):
         for ch in text:
@@ -317,12 +327,12 @@ class MissionManagerNode(Node):
 
     # ---- NAV ----
     def _h_nav(self):
-        if not self._nav_done:
-            if self._elapsed() > self.goal_timeout:
+        if not self.nav.is_goal_done():
+            if self._elapsed() > self.goal_timeout and self.nav.is_goal_active():
                 self.get_logger().warn('Timeout Nav2')
-                self._cancel_nav()
-                self._nav_done = True
+                self.nav.cancel_goal()
             return
+        self._arrival_success = self.nav.was_goal_successful()
         self._go(State.ARRIVED)
 
     # ---- FOLLOW ----
@@ -334,8 +344,9 @@ class MissionManagerNode(Node):
         if not self._person_seen_recently(4.0):
             if (now - self._follow_entered_ts) > 20.0:
                 self.hri.start_speaking('No veo a nadie. Vuelvo al menú.')
-                self._cancel_nav()
+                self.nav.cancel_goal()
                 self._follow_entered_ts = None
+                self._arrival_success   = True   # ya se habló; ARRIVED no añade nada
                 self._go(State.ARRIVED)
             return
 
@@ -349,59 +360,61 @@ class MissionManagerNode(Node):
                 self.get_logger().info(
                     f'Persona a {dist:.2f} m durante {self.hold_time:.1f} s -> OK'
                 )
-                self._cancel_nav()
+                self.nav.cancel_goal()
                 self._follow_entered_ts = None
+                self._arrival_success   = True
                 self._go(State.ARRIVED)
                 return
         else:
             self._close_since = None
 
-        if (now - self._follow_last_send_ts) < 1.0 and self._nav_active:
+        if (now - self._follow_last_send_ts) < 1.0 and self.nav.is_goal_active():
             return
         pose = self._person_goal_pose(det)
         if pose:
-            self._send_pose_goal(pose, label='persona')
+            self.nav.send_goal(pose)
             self._follow_last_send_ts = now
 
     # ---- RANDOM_OUT (opción 4: ir a punto_b) ----
     def _h_random_out(self):
-        if not self._nav_done:
-            if self._elapsed() > self.goal_timeout:
+        if not self.nav.is_goal_done():
+            if self._elapsed() > self.goal_timeout and self.nav.is_goal_active():
                 self.get_logger().warn('Timeout punto_b')
-                self._cancel_nav()
-                self._nav_done = True
+                self.nav.cancel_goal()
             return
         if self._return_pose:
-            self._send_pose_goal(self._return_pose, label='regreso')
+            self.nav.send_goal(self._return_pose)
         else:
             self._send_waypoint_goal('home')
         self._go(State.RANDOM_BACK)
 
     # ---- RANDOM_BACK (opción 4: volver) ----
     def _h_random_back(self):
-        if not self._nav_done:
-            if self._elapsed() > self.goal_timeout:
+        if not self.nav.is_goal_done():
+            if self._elapsed() > self.goal_timeout and self.nav.is_goal_active():
                 self.get_logger().warn('Timeout regreso')
-                self._cancel_nav()
-                self._nav_done = True
+                self.nav.cancel_goal()
             return
+        self._arrival_success = self.nav.was_goal_successful()
         self._go(State.ARRIVED)
 
     # ---- ARRIVED ----
     def _h_arrived(self):
         if not self._arrived_announced:
-            phrase = random.choice(ARRIVAL_PHRASES)
-            if self._person_seen_recently(2.0):
-                phrase += ' Veo a una persona delante.'
+            if self._arrival_success:
+                phrase = random.choice(ARRIVAL_PHRASES)
+                if self._person_seen_recently(2.0):
+                    phrase += ' Veo a una persona delante.'
+            else:
+                phrase = random.choice(FAILURE_PHRASES)
             self.hri.start_speaking(phrase)
             self._arrived_announced = True
-            self._arrived_done_ts = None
+            self._arrived_done_ts   = None
             return
 
         if not self.hri.is_speaking_done():
             return
 
-        # Buffer post-TTS + espera mínima post_goal_wait desde que TTS terminó
         if self._arrived_done_ts is None:
             self._arrived_done_ts = self.get_clock().now()
 
@@ -417,65 +430,22 @@ class MissionManagerNode(Node):
         self._go(State.ASK)
 
     # =========================================================
-    #   Nav2
+    #   Nav helpers — traducen waypoints a llamadas NavigationClient
     # =========================================================
-    def _send_waypoint_goal(self, name: str):
+    def _send_waypoint_goal(self, name: str) -> bool:
+        """Envía goal al waypoint. Devuelve False si el waypoint no existe."""
         if name not in self.waypoints:
             self.get_logger().error(f'Waypoint desconocido: {name}')
-            self._nav_done = True
-            return
-        c = self.waypoints[name]
-        self._send_xy_goal(
-            float(c['x']), float(c['y']), float(c.get('theta', 0.0)), label=name
+            return False
+        c    = self.waypoints[name]
+        pose = self.nav.create_pose_stamped(
+            float(c['x']), float(c['y']), float(c.get('theta', 0.0))
         )
-
-    def _send_xy_goal(self, x, y, theta, label):
-        pose = PoseStamped()
-        pose.header.frame_id = self.map_frame
-        pose.header.stamp = self.get_clock().now().to_msg()
-        pose.pose.position.x = x
-        pose.pose.position.y = y
-        pose.pose.orientation.z = math.sin(theta / 2.0)
-        pose.pose.orientation.w = math.cos(theta / 2.0)
-        self._send_pose_goal(pose, label)
-
-    def _send_pose_goal(self, pose: PoseStamped, label: str):
-        if not self.nav_client.server_is_ready():
-            self.get_logger().error('Nav2 no disponible')
-            self._nav_done = True
-            return
-        goal = NavigateToPose.Goal()
-        goal.pose = pose
-        self._nav_done    = False
-        self._nav_success = False
-        self._nav_active  = True
-        future = self.nav_client.send_goal_async(goal)
-        future.add_done_callback(self._nav_resp_cb)
+        self.nav.send_goal(pose)
         self.get_logger().info(
-            f'Nav2: "{label}" -> ({pose.pose.position.x:.2f}, {pose.pose.position.y:.2f})'
+            f'Nav2: "{name}" -> ({c["x"]:.2f}, {c["y"]:.2f})'
         )
-
-    def _nav_resp_cb(self, future):
-        handle = future.result()
-        if not handle.accepted:
-            self.get_logger().error('Nav2: goal rechazado')
-            self._nav_done   = True
-            self._nav_active = False
-            return
-        self._nav_goal_handle = handle
-        handle.get_result_async().add_done_callback(self._nav_result_cb)
-
-    def _nav_result_cb(self, future):
-        result = future.result()
-        self._nav_success = (result.status == GoalStatus.STATUS_SUCCEEDED)
-        self._nav_done    = True
-        self._nav_active  = False
-        self.get_logger().info(f'Nav2: {"OK" if self._nav_success else "FAIL"}')
-
-    def _cancel_nav(self):
-        if self._nav_goal_handle and self._nav_active:
-            self._nav_goal_handle.cancel_goal_async()
-            self._nav_active = False
+        return True
 
     # =========================================================
     #   TF / Pose helpers
@@ -486,10 +456,10 @@ class MissionManagerNode(Node):
                 self.map_frame, self.base_frame, rclpy.time.Time()
             )
             p = PoseStamped()
-            p.header.frame_id = self.map_frame
-            p.header.stamp    = self.get_clock().now().to_msg()
-            p.pose.position.x = tr.transform.translation.x
-            p.pose.position.y = tr.transform.translation.y
+            p.header.frame_id  = self.map_frame
+            p.header.stamp     = self.get_clock().now().to_msg()
+            p.pose.position.x  = tr.transform.translation.x
+            p.pose.position.y  = tr.transform.translation.y
             p.pose.orientation = tr.transform.rotation
             return p
         except Exception as e:
@@ -505,7 +475,7 @@ class MissionManagerNode(Node):
             self.get_logger().warn(f'TF persona: {e}')
             return None
 
-        q = tr.transform.rotation
+        q   = tr.transform.rotation
         yaw = math.atan2(
             2.0 * (q.w * q.z + q.x * q.y),
             1.0 - 2.0 * (q.y * q.y + q.z * q.z)
@@ -519,19 +489,19 @@ class MissionManagerNode(Node):
             return None
         rx, ry = robot.pose.position.x, robot.pose.position.y
 
-        dx, dy = px - rx, py - ry
-        d = math.sqrt(dx*dx + dy*dy)
+        dx, dy   = px - rx, py - ry
+        d        = math.sqrt(dx*dx + dy*dy)
         if d < 0.05:
             return robot
-        ux, uy = dx / d, dy / d
+        ux, uy   = dx / d, dy / d
         target_d = max(0.0, d - self.hold_distance)
-        theta = math.atan2(dy, dx)
+        theta    = math.atan2(dy, dx)
 
         pose = PoseStamped()
-        pose.header.frame_id = self.map_frame
-        pose.header.stamp    = self.get_clock().now().to_msg()
-        pose.pose.position.x = rx + ux * target_d
-        pose.pose.position.y = ry + uy * target_d
+        pose.header.frame_id    = self.map_frame
+        pose.header.stamp       = self.get_clock().now().to_msg()
+        pose.pose.position.x    = rx + ux * target_d
+        pose.pose.position.y    = ry + uy * target_d
         pose.pose.orientation.z = math.sin(theta / 2.0)
         pose.pose.orientation.w = math.cos(theta / 2.0)
         return pose
