@@ -22,6 +22,7 @@ from hri_client.hri_client import HRIClient
 from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 from std_msgs.msg import String
 from tf2_ros import Buffer, TransformListener
 from vision_msgs.msg import Detection3DArray
@@ -104,12 +105,12 @@ class MissionManagerNode(Node):
         # Nav2
         self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
 
-        # YOLO detections
+        # YOLO detections — sensor_data QoS para casar con yolo_depth_node
         self.create_subscription(
             Detection3DArray,
             self.get_parameter('detections_topic').value,
             self._detections_cb,
-            10,
+            qos_profile_sensor_data,
         )
 
         # Debug state publisher

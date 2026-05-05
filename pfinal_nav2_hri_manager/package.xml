@@ -20,9 +20,10 @@
 
   <depend>hri_client</depend>
   <depend>simple_hri_interfaces</depend>
+  <depend>sensor_msgs</depend>
+  <depend>yolo_msgs</depend>
   <exec_depend>simple_hri</exec_depend>
   <exec_depend>sound_play</exec_depend>
-  <exec_depend>camera</exec_depend>
   <exec_depend>yolo_bringup</exec_depend>
 
   <test_depend>ament_copyright</test_depend>

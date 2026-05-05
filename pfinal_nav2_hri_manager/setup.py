@@ -27,8 +27,9 @@ setup(
     entry_points={
         'console_scripts': [
             'mission_manager = pfinal_nav2_hri_manager.mission_manager_node:main',
-            'hri_test         = pfinal_nav2_hri_manager.hri_test_node:main',
-            'nav_test         = pfinal_nav2_hri_manager.nav_test_node:main',
+            'hri_test        = pfinal_nav2_hri_manager.hri_test_node:main',
+            'nav_test        = pfinal_nav2_hri_manager.nav_test_node:main',
+            'yolo_depth      = pfinal_nav2_hri_manager.yolo_depth_node:main',
         ],
     },
 )
