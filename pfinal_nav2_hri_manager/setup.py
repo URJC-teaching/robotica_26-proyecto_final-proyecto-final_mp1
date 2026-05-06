@@ -30,6 +30,7 @@ setup(
             'hri_test        = pfinal_nav2_hri_manager.hri_test_node:main',
             'nav_test        = pfinal_nav2_hri_manager.nav_test_node:main',
             'yolo_depth      = pfinal_nav2_hri_manager.yolo_depth_node:main',
+            'find_person_test = pfinal_nav2_hri_manager.find_person_test_node:main',
         ],
     },
 )

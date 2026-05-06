@@ -41,7 +41,7 @@ def launch_setup(context, *args, **kwargs):
         base_frame   = 'base_link'
     else:
         image_topic  = '/camera/rgb/image_raw'
-        info_topic   = '/camera/depth_raw/camera_info'
+        info_topic   = '/camera/rgb/camera_info'   # intrínsecas de la cámara RGB (misma que YOLO usa)
         camera_frame = 'camera_rgb_frame'
         base_frame   = 'base_footprint'
 
@@ -161,7 +161,7 @@ def launch_setup(context, *args, **kwargs):
             'person_class':         'person',
             'person_hold_distance': 1.5,
             'person_hold_time':     2.0,
-            'goal_timeout_sec':     90.0,
+            'goal_timeout_sec':     110.0,
             'post_goal_wait_sec':   2.0,
             'base_frame':           base_frame,
             'map_frame':            'map',

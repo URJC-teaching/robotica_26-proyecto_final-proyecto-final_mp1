@@ -16,7 +16,7 @@ from enum import IntEnum
 import rclpy
 import yaml
 from ament_index_python.packages import get_package_share_directory
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Twist
 from hri_client.hri_client import HRIClient
 from navigation_client.navigation_client import NavigationClient
 from rclpy.node import Node
@@ -94,14 +94,18 @@ class MissionManagerNode(Node):
         self.declare_parameter('random_xmax', 3.0)
         self.declare_parameter('random_ymin', -3.0)
         self.declare_parameter('random_ymax', 3.0)
+        self.declare_parameter('search_angular_speed', 0.5)
+        self.declare_parameter('search_timeout_sec', 30.0)
 
-        self.hold_distance = float(self.get_parameter('person_hold_distance').value)
-        self.hold_time      = float(self.get_parameter('person_hold_time').value)
-        self.goal_timeout   = float(self.get_parameter('goal_timeout_sec').value)
-        self.post_goal_wait = float(self.get_parameter('post_goal_wait_sec').value)
-        self.base_frame     = self.get_parameter('base_frame').value
-        self.map_frame      = self.get_parameter('map_frame').value
-        self.person_class   = self.get_parameter('person_class').value
+        self.hold_distance        = float(self.get_parameter('person_hold_distance').value)
+        self.hold_time            = float(self.get_parameter('person_hold_time').value)
+        self.goal_timeout         = float(self.get_parameter('goal_timeout_sec').value)
+        self.post_goal_wait       = float(self.get_parameter('post_goal_wait_sec').value)
+        self.base_frame           = self.get_parameter('base_frame').value
+        self.map_frame            = self.get_parameter('map_frame').value
+        self.person_class         = self.get_parameter('person_class').value
+        self._search_angular_spd  = float(self.get_parameter('search_angular_speed').value)
+        self._search_timeout      = float(self.get_parameter('search_timeout_sec').value)
 
         # HRI client (simple_hri stack: /tts_service + /stt_service)
         self.hri = HRIClient(self)
@@ -109,6 +113,9 @@ class MissionManagerNode(Node):
         # Nav2 client
         self.nav = NavigationClient(self)
         self.nav.set_frames(self.base_frame, self.map_frame)
+
+        # Velocidad directa (usado sólo para girar en búsqueda de persona)
+        self._cmd_vel_pub = self.create_publisher(Twist, 'cmd_vel', 10)
 
         # YOLO detections — sensor_data QoS para casar con yolo_depth_node
         self.create_subscription(
@@ -335,45 +342,42 @@ class MissionManagerNode(Node):
         self._arrival_success = self.nav.was_goal_successful()
         self._go(State.ARRIVED)
 
-    # ---- FOLLOW ----
+    # ---- FOLLOW: gira buscando persona; al verla navega a 1.5 m de ella ----
     def _h_follow(self):
         now = self.get_clock().now().nanoseconds / 1e9
         if self._follow_entered_ts is None:
             self._follow_entered_ts = now
 
-        if not self._person_seen_recently(4.0):
-            if (now - self._follow_entered_ts) > 20.0:
-                self.hri.start_speaking('No veo a nadie. Vuelvo al menú.')
-                self.nav.cancel_goal()
-                self._follow_entered_ts = None
-                self._arrival_success   = True   # ya se habló; ARRIVED no añade nada
-                self._go(State.ARRIVED)
-            return
-
-        det  = self._last_detection
-        dist = det['dist']
-
-        if dist <= self.hold_distance:
-            if self._close_since is None:
-                self._close_since = now
-            elif (now - self._close_since) >= self.hold_time:
-                self.get_logger().info(
-                    f'Persona a {dist:.2f} m durante {self.hold_time:.1f} s -> OK'
-                )
-                self.nav.cancel_goal()
-                self._follow_entered_ts = None
-                self._arrival_success   = True
+        if not self._person_seen_recently(1.5):
+            # Timeout: nadie encontrado
+            if (now - self._follow_entered_ts) > self._search_timeout:
+                self._stop_robot()
+                self.hri.start_speaking('No encuentro a nadie. Vuelvo al menú.')
+                self._follow_entered_ts  = None
+                self._arrival_success    = True
+                self._arrived_announced  = True   # ya se habló, ARRIVED solo espera
                 self._go(State.ARRIVED)
                 return
-        else:
-            self._close_since = None
-
-        if (now - self._follow_last_send_ts) < 1.0 and self.nav.is_goal_active():
+            # Girar en el sitio buscando
+            spin = Twist()
+            spin.angular.z = self._search_angular_spd
+            self._cmd_vel_pub.publish(spin)
             return
+
+        # Persona detectada: parar giro y navegar al punto a 1.5 m
+        self._stop_robot()
+        det  = self._last_detection
+        dist = det['dist']
+        self.get_logger().info(f'Persona encontrada a {dist:.2f} m — enviando goal Nav2')
         pose = self._person_goal_pose(det)
-        if pose:
-            self.nav.send_goal(pose)
-            self._follow_last_send_ts = now
+        if pose is None:
+            return   # fallo TF, reintenta en el siguiente ciclo
+        self.nav.send_goal(pose)
+        self._follow_entered_ts = None
+        self._go(State.NAV)
+
+    def _stop_robot(self):
+        self._cmd_vel_pub.publish(Twist())
 
     # ---- RANDOM_OUT (opción 4: ir a punto_b) ----
     def _h_random_out(self):
